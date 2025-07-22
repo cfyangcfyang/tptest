@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>觸控點至對角線距離測試</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<style>
+  body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: #f0f0f0;
+    /* 關鍵：防止瀏覽器處理觸控手勢 (如縮放、滾動)，由我們完全接管 */
+    touch-action: none;
+    user-select: none;
+  }
+  #drawing-canvas {
+    background-color: #ffffff;
+    cursor: crosshair;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1;
+  }
+  #info {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    padding: 10px;
+    background-color: rgba(0, 0, 0, 0.75);
+    color: white;
+    font-family: monospace;
+    font-size: 16px;
+    line-height: 1.5;
+    border-radius: 5px;
+    z-index: 10;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  #clear-btn {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    padding: 8px;
+    background-color: rgba(255, 255, 255, 0.8);
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    cursor: pointer;
+    z-index: 10;
+    transition: background-color 0.2s;
+  }
+  #clear-btn:hover {
+    background-color: rgba(224, 224, 224, 0.9);
+  }
+  #clear-btn svg {
+    width: 24px;
+    height: 24px;
+    display: block;
+  }
+</style>
+</head>
+<body>
+
+<div id="info">請用手指在螢幕上觸控</div>
+
+<div id="clear-btn" title="清除所有觸控點">
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="3 6 5 6 21 6"></polyline>
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+    <line x1="10" y1="11" x2="10" y2="17"></line>
+    <line x1="14" y1="11" x2="14" y2="17"></line>
+  </svg>
+</div>
+
+<canvas id="drawing-canvas"></canvas>
+
+<script>
+  const canvas = document.getElementById('drawing-canvas');
+  const info = document.getElementById('info');
+  const clearButton = document.getElementById('clear-btn');
+  const ctx = canvas.getContext('2d');
+
+  // 使用 Map 來儲存每一個觸控點的資訊 (ID -> {x, y, color, distance})
+  const activeTouches = new Map();
+  // 準備 10 種不同的顏色
+  const touchColors = ['#e6194B', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#fabed4'];
+
+  // --- 畫布與繪圖函式 ---
+
+  // 繪製背景和對角線
+  function drawScene() {
+    // 清除整個畫布
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 畫左上到右下的對角線
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 10]); // 設定為虛線
+    ctx.moveTo(0, 0);
+    ctx.lineTo(canvas.width, canvas.height);
+    ctx.stroke();
+    ctx.setLineDash([]); // 取消虛線設定
+  }
+
+  // 重新繪製所有物件 (對角線和所有觸控點)
+  function redrawAll() {
+      drawScene();
+      activeTouches.forEach((touch, id) => {
+          drawTouchPoint(touch.x, touch.y, touch.color, id);
+      });
+  }
+
+  // 調整畫布大小以符合視窗
+  function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    redrawAll();
+    updateInfo();
+  }
+
+  // 清除所有觸控點並重繪場景
+  function clearPoints() {
+    activeTouches.clear();
+    redrawAll();
+    updateInfo();
+  }
+
+  // 取得觸控點顏色
+  function getTouchColor(id) {
+    return touchColors[id % touchColors.length];
+  }
+
+  // 在指定位置畫一個帶有 ID 的觸控點
+  function drawTouchPoint(x, y, color, id) {
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.fillStyle = color;
+      ctx.arc(x, y, 20, 0, 2 * Math.PI); // 較大的圓圈半徑
+      ctx.fill();
+      
+      ctx.fillStyle = 'white'; // 圓圈內的文字顏色
+      ctx.font = 'bold 18px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(id, x, y); // 在圓心寫上 ID
+  }
+
+  // --- 核心計算函式 ---
+
+  /**
+   * 計算點 (x0, y0) 到由 (0,0) 和 (w,h) 定義的直線的垂直距離
+   * 直線方程式: h*x - w*y = 0
+   * 距離公式: |A*x0 + B*y0 + C| / sqrt(A^2 + B^2)
+   * A=h, B=-w, C=0
+   */
+  function calculateDistanceToDiagonal(x0, y0) {
+      const w = canvas.width;
+      const h = canvas.height;
+      if (w === 0 || h === 0) return 0;
+
+      const numerator = Math.abs(h * x0 - w * y0);
+      const denominator = Math.sqrt(h * h + w * w);
+      
+      return numerator / denominator;
+  }
+
+
+  // --- 資訊更新 ---
+
+  // 更新左上角的資訊顯示
+  function updateInfo() {
+    let infoContent = `<strong>觸控點數量: ${activeTouches.size}</strong><hr>`;
+    activeTouches.forEach((touch, id) => {
+        const colorSwatch = `<span style="color: ${touch.color};">●</span>`;
+        const x = Math.round(touch.x);
+        const y = Math.round(touch.y);
+        const dist = touch.distance.toFixed(2); // 距離顯示到小數點後兩位
+        infoContent += `${colorSwatch} ID ${id}: (${x}, ${y})<br>`;
+        infoContent += `&nbsp;&nbsp;└ 距離: ${dist} px<br>`;
+    });
+    info.innerHTML = infoContent;
+  }
+
+
+  // --- 事件處理 ---
+
+  function handleTouchStart(event) {
+    event.preventDefault();
+    const touches = event.changedTouches;
+    const rect = canvas.getBoundingClientRect();
+
+    for (const touch of touches) {
+      const id = touch.identifier;
+      const color = getTouchColor(id);
+      const x = touch.clientX - rect.left;
+      const y = touch.clientY - rect.top;
+      
+      // 計算距離
+      const distance = calculateDistanceToDiagonal(x, y);
+
+      // 儲存觸控資訊
+      activeTouches.set(id, { x, y, color, distance, lastX: x, lastY: y });
+
+      // 繪製觸控點
+      drawTouchPoint(x, y, color, id);
+    }
+    updateInfo();
+  }
+
+  function handleTouchMove(event) {
+    event.preventDefault();
+    const touches = event.changedTouches;
+    const rect = canvas.getBoundingClientRect();
+
+    for (const touch of touches) {
+      const id = touch.identifier;
+      if (activeTouches.has(id)) {
+        const currentPoint = activeTouches.get(id);
+        const newX = touch.clientX - rect.left;
+        const newY = touch.clientY - rect.top;
+
+        // 重新計算距離
+        const distance = calculateDistanceToDiagonal(newX, newY);
+
+        // 更新觸控點資訊
+        activeTouches.set(id, { ...currentPoint, x: newX, y: newY, distance: distance });
+
+        // 畫移動軌跡 (可選，這裡保留了繪製軌跡)
+        ctx.beginPath();
+        ctx.strokeStyle = currentPoint.color;
+        ctx.lineWidth = 5;
+        ctx.moveTo(currentPoint.lastX, currentPoint.lastY);
+        ctx.lineTo(newX, newY);
+        ctx.stroke();
+        
+        // 更新軌跡的起點
+        currentPoint.lastX = newX;
+        currentPoint.lastY = newY;
+        
+        // 重新繪製觸控點本身，確保它在軌跡之上
+        drawTouchPoint(newX, newY, currentPoint.color, id);
+      }
+    }
+    updateInfo();
+  }
+
+  function handleTouchEnd(event) {
+    event.preventDefault();
+    for (const touch of event.changedTouches) {
+      activeTouches.delete(touch.identifier);
+    }
+    // 觸控結束後，重繪整個畫布，清除殘留的軌跡和點
+    redrawAll();
+    updateInfo();
+  }
+
+
+  // --- 事件綁定 ---
+  canvas.addEventListener('touchstart', handleTouchStart);
+  canvas.addEventListener('touchmove', handleTouchMove);
+  canvas.addEventListener('touchend', handleTouchEnd);
+  canvas.addEventListener('touchcancel', handleTouchEnd); // 觸控被系統中斷時也視為結束
+
+  clearButton.addEventListener('click', clearPoints);
+  window.addEventListener('resize', resizeCanvas);
+  
+  // --- 初始化 ---
+  resizeCanvas(); // 首次載入時設定畫布大小並繪製場景
+
+</script>
+
+</body>
+</html>
