@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>即時觸控報點率測試 (單點)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    text-align: center;
+    background-color: #121212;
+    color: #e0e0e0;
+    margin: 0;
+    padding: 20px;
+  }
+  h1 {
+    color: #ffffff;
+  }
+  #touchArea {
+    width: 90vw;
+    height: 65vh;
+    background-color: #282828;
+    border: 2px dashed #555;
+    margin: 20px auto;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 1.5em;
+    color: #888;
+    touch-action: none; /* 禁用瀏覽器的預設觸控行為，如捲動 */
+    border-radius: 12px;
+    cursor: crosshair;
+  }
+  #info {
+    margin-top: 20px;
+    font-size: 1.5em;
+    font-weight: 500;
+  }
+  .label {
+    font-weight: normal;
+    color: #aaa;
+  }
+  #reportRate {
+      color: #4CAF50; /* 綠色，醒目顯示 */
+      font-weight: bold;
+      font-size: 1.8em;
+  }
+  #coords {
+      color: #2196F3; /* 藍色 */
+      font-weight: bold;
+  }
+</style>
+</head>
+<body>
+
+<h1>即時觸控報點率測試</h1>
+<p>請在下方的灰色區域內持續滑動您的手指。</p>
+
+<div id="touchArea">
+  <span id="touchAreaText">在此處觸控</span>
+</div>
+
+<div id="info">
+  <div><span id="reportRate">0</span> <span class="label">Hz</span></div>
+  <div><span class="label">座標:</span> <span id="coords">N/A</span></div>
+</div>
+
+<script>
+  const touchArea = document.getElementById('touchArea');
+  const coordsDisplay = document.getElementById('coords');
+  const reportRateDisplay = document.getElementById('reportRate');
+  const touchAreaText = document.getElementById('touchAreaText');
+
+  // 用一個陣列來儲存最近一段時間內的觸控事件時間戳
+  let touchEventsTimestamps = [];
+  // 定義計算報點率的時間窗口（1000毫秒 = 1秒）
+  const calculationWindowInMs = 1000;
+
+  // 處理觸控開始事件
+  function handleTouchStart(event) {
+    event.preventDefault();
+    touchAreaText.style.display = 'none'; // 隱藏提示文字
+    
+    // 清空時間戳陣列，為新的觸控做準備
+    touchEventsTimestamps = [];
+
+    // 只處理單點觸控，獲取第一個觸控點. [10]
+    if (event.touches.length === 1) {
+      const touch = event.touches[0];
+      coordsDisplay.textContent = `${Math.round(touch.pageX)}, ${Math.round(touch.pageY)}`;
+    }
+  }
+
+  // 處理觸控移動事件
+  function handleTouchMove(event) {
+    event.preventDefault();
+    
+    // 只處理單點觸控
+    if (event.touches.length !== 1) {
+        return;
+    }
+
+    const touch = event.touches[0];
+    const now = event.timeStamp; // 獲取當前事件的時間戳. [1]
+
+    // 將新的時間戳加入陣列
+    touchEventsTimestamps.push(now);
+
+    // 移除所有早於 "當前時間 - 時間窗口" 的舊時間戳. [1, 7]
+    // 這能確保陣列中只保留最近1秒內的事件
+    while (touchEventsTimestamps.length > 0 && now - touchEventsTimestamps[0] > calculationWindowInMs) {
+      touchEventsTimestamps.shift(); // 移除陣列中最舊的元素
+    }
+    
+    // 計算報點率：
+    // 目前陣列中的事件數量，即為最近一秒內的報點數 (Hz)
+    const currentRate = touchEventsTimestamps.length;
+    reportRateDisplay.textContent = currentRate;
+
+    // 更新座標顯示. [4, 5]
+    coordsDisplay.textContent = `${Math.round(touch.pageX)}, ${Math.round(touch.pageY)}`;
+  }
+
+  // 處理觸控結束事件
+  function handleTouchEnd(event) {
+    event.preventDefault();
+    touchAreaText.style.display = 'block'; // 重新顯示提示文字
+    
+    // 重置顯示
+    reportRateDisplay.textContent = '0';
+    coordsDisplay.textContent = 'N/A';
+    
+    // 清空時間戳陣列
+    touchEventsTimestamps = [];
+  }
+
+  // 綁定事件監聽器
+  touchArea.addEventListener('touchstart', handleTouchStart, { passive: false });
+  touchArea.addEventListener('touchmove', handleTouchMove, { passive: false });
+  touchArea.addEventListener('touchend', handleTouchEnd, { passive: false });
+  touchArea.addEventListener('touchcancel', handleTouchEnd, { passive: false }); // 當觸控被中斷時也觸發結束
+
+</script>
+
+</body>
+</html>
