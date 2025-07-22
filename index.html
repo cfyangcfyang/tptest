@@ -1,7 +1,7 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html>
 <head>
-<title>觸控與繪圖測試</title>
+<title>多點觸控與繪圖測試</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <style>
   body {
@@ -9,13 +9,13 @@
     padding: 0;
     overflow: hidden;
     background-color: #f0f0f0;
-    /* 防止在畫布上拖曳時選取到頁面其他文字 */
+    /* 防止在畫布上拖曳時選取到頁面其他文字或觸發瀏覽器手勢 */
     user-select: none;
+    touch-action: none;
   }
   #drawing-canvas {
     background-color: #ffffff;
     cursor: crosshair;
-    /* 確保 canvas 在最底層，不會蓋住按鈕 */
     position: absolute;
     top: 0;
     left: 0;
@@ -31,9 +31,8 @@
     font-family: monospace;
     font-size: 18px;
     border-radius: 5px;
-    z-index: 10; /* 確保資訊框在最上層 */
+    z-index: 10;
   }
-  /* 清除按鈕的樣式 */
   #clear-btn {
     position: fixed;
     top: 10px;
@@ -43,7 +42,7 @@
     border: 1px solid #ccc;
     border-radius: 5px;
     cursor: pointer;
-    z-index: 10; /* 確保按鈕在最上層 */
+    z-index: 10;
     transition: background-color 0.2s;
   }
   #clear-btn:hover {
@@ -52,16 +51,14 @@
   #clear-btn svg {
     width: 24px;
     height: 24px;
-    display: block; /* 移除 svg 下方的多餘空間 */
+    display: block;
   }
 </style>
 </head>
 <body>
 
-<!-- 資訊顯示區塊 -->
-<div id="info">請觸控、或按住滑鼠左鍵拖曳</div>
+<div id="info">支援多點觸控</div>
 
-<!-- 清除按鈕 (使用內嵌 SVG 圖示) -->
 <div id="clear-btn" title="清除畫布">
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <polyline points="3 6 5 6 21 6"></polyline>
@@ -71,88 +68,155 @@
   </svg>
 </div>
 
-<!-- 繪圖畫布 -->
 <canvas id="drawing-canvas" width="1920" height="1080"></canvas>
 
 <script>
-  // 取得 DOM 元素
   const canvas = document.getElementById('drawing-canvas');
   const info = document.getElementById('info');
   const clearButton = document.getElementById('clear-btn');
   const ctx = canvas.getContext('2d');
 
-  let isDrawing = false;
-  let lastX = 0;
-  let lastY = 0;
+  // --- 滑鼠繪圖相關變數 ---
+  let isMouseDrawing = false;
+  let lastMouseX = 0;
+  let lastMouseY = 0;
 
-  // 設定線條樣式
-  ctx.strokeStyle = '#000000';
-  ctx.lineWidth = 1;
+  // --- 觸控繪圖相關變數 ---
+  // 使用 Map 來儲存每一個觸控點的資訊 (ID -> {x, y, color})
+  const activeTouches = new Map();
+  const touchColors = ['#FF5733', '#33FF57', '#3357FF', '#FF33A1', '#A133FF', '#33FFA1', '#FFC300', '#C70039', '#900C3F', '#581845'];
+
+  // 設定通用線條樣式
+  ctx.lineWidth = 4;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // --- 繪圖相關函式 ---
-
-  function getCoordinates(event) {
-    let x, y;
-    const rect = canvas.getBoundingClientRect();
-    if (event.type.startsWith('touch')) {
-      const touch = event.touches[0] || event.changedTouches[0];
-      x = touch.clientX - rect.left;
-      y = touch.clientY - rect.top;
-    } else {
-      x = event.clientX - rect.left;
-      y = event.clientY - rect.top;
-    }
-    return { x, y };
+  function getTouchColor(id) {
+    // 根據觸控點的 ID 來分配一個顏色
+    return touchColors[id % touchColors.length];
   }
 
-  function startDrawing(event) {
-    isDrawing = true;
-    const { x, y } = getCoordinates(event);
-    [lastX, lastY] = [x, y];
-    info.innerHTML = `點位: (${Math.round(x)}, ${Math.round(y)})`;
-  }
+  // --- 多點觸控事件處理 ---
 
-  function draw(event) {
-    if (!isDrawing || (event.buttons !== 1 && !event.type.startsWith('touch'))) {
-      if (isDrawing) stopDrawing();
-      return;
-    }
+  function handleTouchStart(event) {
     event.preventDefault();
-    const { x, y } = getCoordinates(event);
+    const touches = event.changedTouches;
+    const rect = canvas.getBoundingClientRect();
+
+    for (let i = 0; i < touches.length; i++) {
+      const touch = touches[i];
+      const id = touch.identifier;
+      const color = getTouchColor(id);
+      const x = touch.clientX - rect.left;
+      const y = touch.clientY - rect.top;
+
+      // 儲存這個新的觸控點
+      activeTouches.set(id, { x, y, color });
+
+      // 畫一個起始點
+      ctx.beginPath();
+      ctx.fillStyle = color;
+      ctx.arc(x, y, ctx.lineWidth / 2, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+  }
+
+  function handleTouchMove(event) {
+    event.preventDefault();
+    const touches = event.changedTouches;
+    const rect = canvas.getBoundingClientRect();
+
+    for (let i = 0; i < touches.length; i++) {
+      const touch = touches[i];
+      const id = touch.identifier;
+
+      // 檢查這個觸控點是否被追蹤
+      if (activeTouches.has(id)) {
+        const lastPoint = activeTouches.get(id);
+        const newX = touch.clientX - rect.left;
+        const newY = touch.clientY - rect.top;
+
+        // 畫線
+        ctx.beginPath();
+        ctx.strokeStyle = lastPoint.color;
+        ctx.moveTo(lastPoint.x, lastPoint.y);
+        ctx.lineTo(newX, newY);
+        ctx.stroke();
+
+        // 更新觸控點的座標
+        activeTouches.set(id, { ...lastPoint, x: newX, y: newY });
+
+        // 更新座標顯示 (只顯示最後一個移動的點)
+        info.innerHTML = `點位: (${Math.round(newX)}, ${Math.round(newY)})`;
+      }
+    }
+  }
+
+  function handleTouchEnd(event) {
+    event.preventDefault();
+    const touches = event.changedTouches;
+
+    for (let i = 0; i < touches.length; i++) {
+      const touch = touches[i];
+      // 當手指離開時，從追蹤列表裡移除
+      activeTouches.delete(touch.identifier);
+    }
+  }
+
+  // --- 滑鼠事件處理 (維持原樣) ---
+
+  function startMouseDrawing(event) {
+    isMouseDrawing = true;
+    const rect = canvas.getBoundingClientRect();
+    lastMouseX = event.clientX - rect.left;
+    lastMouseY = event.clientY - rect.top;
+    info.innerHTML = `點位: (${Math.round(lastMouseX)}, ${Math.round(lastMouseY)})`;
+  }
+
+  function drawMouse(event) {
+    if (!isMouseDrawing) return;
+    const rect = canvas.getBoundingClientRect();
+    const newX = event.clientX - rect.left;
+    const newY = event.clientY - rect.top;
+    
     ctx.beginPath();
-    ctx.moveTo(lastX, lastY);
-    ctx.lineTo(x, y);
+    ctx.strokeStyle = '#000000'; // 滑鼠軌跡為黑色
+    ctx.moveTo(lastMouseX, lastMouseY);
+    ctx.lineTo(newX, newY);
     ctx.stroke();
-    [lastX, lastY] = [x, y];
-    info.innerHTML = `點位: (${Math.round(x)}, ${Math.round(y)})`;
+    
+    [lastMouseX, lastMouseY] = [newX, newY];
+    info.innerHTML = `點位: (${Math.round(newX)}, ${Math.round(newY)})`;
   }
 
-  function stopDrawing() {
-    isDrawing = false;
+  function stopMouseDrawing() {
+    isMouseDrawing = false;
   }
 
-  // --- 新增的清除畫布函式 ---
+  // --- 清除功能 ---
+
   function clearCanvas() {
-    // 清除整個畫布
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // 同時清除正在追蹤的觸控點，避免錯誤
+    activeTouches.clear();
+    info.innerHTML = '畫布已清除';
   }
 
-  // --- 事件監聽 ---
-
-  // 滑鼠事件
-  canvas.addEventListener('mousedown', startDrawing);
-  canvas.addEventListener('mousemove', draw);
-  canvas.addEventListener('mouseup', stopDrawing);
-  canvas.addEventListener('mouseout', stopDrawing);
+  // --- 綁定事件監聽 ---
 
   // 觸控事件
-  canvas.addEventListener('touchstart', startDrawing);
-  canvas.addEventListener('touchmove', draw);
-  canvas.addEventListener('touchend', stopDrawing);
+  canvas.addEventListener('touchstart', handleTouchStart);
+  canvas.addEventListener('touchmove', handleTouchMove);
+  canvas.addEventListener('touchend', handleTouchEnd);
+  canvas.addEventListener('touchcancel', handleTouchEnd); // 當觸控被系統中斷時也結束
 
-  // 清除按鈕的點擊事件
+  // 滑鼠事件
+  canvas.addEventListener('mousedown', startMouseDrawing);
+  canvas.addEventListener('mousemove', drawMouse);
+  canvas.addEventListener('mouseup', stopMouseDrawing);
+  canvas.addEventListener('mouseout', stopMouseDrawing);
+
+  // 清除按鈕
   clearButton.addEventListener('click', clearCanvas);
 
 </script>
