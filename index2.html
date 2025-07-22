@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>觸控與滑鼠點擊距離測試</title>
+<title>單點距離測試</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <style>
   body {
@@ -59,9 +59,9 @@
 </head>
 <body>
 
-<div id="info">請用手指觸控，或按住滑鼠左鍵拖曳</div>
+<div id="info">請在螢幕上點擊或拖曳</div>
 
-<div id="clear-btn" title="清除所有點">
+<div id="clear-btn" title="清除點位">
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <polyline points="3 6 5 6 21 6"></polyline>
     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -78,15 +78,11 @@
   const clearButton = document.getElementById('clear-btn');
   const ctx = canvas.getContext('2d');
 
-  // 統一管理所有點
-  const activePoints = new Map();
-  const touchColors = ['#e6194B', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#fabed4'];
+  // 只需一個變數來儲存當前的點
+  let currentPoint = null;
   
-  // 滑鼠相關狀態
-  let mousePointCounter = 0;
+  // 滑鼠狀態
   let isMouseDown = false;
-  let currentMouseId = null;
-
 
   // --- 畫布與繪圖函式 ---
 
@@ -102,52 +98,34 @@
     ctx.setLineDash([]);
   }
 
+  // 重繪整個場景，包含背景和唯一的點
   function redrawAll() {
       drawScene();
-      activePoints.forEach((point, id) => {
-          drawPoint(point.x, point.y, point.color, id);
-      });
+      if (currentPoint) {
+          drawPoint(currentPoint.x, currentPoint.y, currentPoint.color);
+      }
   }
 
   function resizeCanvas() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
     redrawAll();
     updateInfo();
   }
 
-  function clearPoints() {
-    activePoints.clear();
-    mousePointCounter = 0;
-    isMouseDown = false;
-    currentMouseId = null;
+  // 清除點位
+  function clearPoint() {
+    currentPoint = null;
     redrawAll();
     updateInfo();
   }
-
-  function getTouchColor(id) {
-    return touchColors[id % touchColors.length];
-  }
-
-  function drawPoint(x, y, color, id) {
+  
+  // 繪製點 (不再需要 ID)
+  function drawPoint(x, y, color) {
       ctx.beginPath();
       ctx.fillStyle = color;
-      // ===========================================
-      // == 修改處：將報點半徑改為 5px              ==
-      // ===========================================
-      ctx.arc(x, y, 5, 0, 2 * Math.PI);
+      ctx.arc(x, y, 5, 0, 2 * Math.PI); // 半徑為 5px
       ctx.fill();
-      
-      // 為了配合縮小的圓圈，字體也縮小
-      ctx.fillStyle = 'white';
-      ctx.font = 'bold 9px Arial';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      // 為了避免文字超出小圈，只顯示 ID 的最後一位數字或字母
-      const displayText = String(id).slice(-1); 
-      ctx.fillText(displayText, x, y);
   }
 
   // --- 核心計算函式 ---
@@ -164,137 +142,90 @@
   // --- 資訊更新 ---
 
   function updateInfo() {
-    let infoContent = `<strong>總點數: ${activePoints.size}</strong><hr>`;
-    activePoints.forEach((point, id) => {
-        const colorSwatch = `<span style="color: ${point.color};">●</span>`;
-        const x = Math.round(point.x);
-        const y = Math.round(point.y);
-        const dist = point.distance.toFixed(2);
-        infoContent += `${colorSwatch} ID ${id}: (${x}, ${y})<br>`;
-        infoContent += `&nbsp;&nbsp;└ 距離: ${dist} px<br>`;
-    });
-    info.innerHTML = infoContent;
+    if (currentPoint) {
+        const colorSwatch = `<span style="color: ${currentPoint.color};">●</span>`;
+        const x = Math.round(currentPoint.x);
+        const y = Math.round(currentPoint.y);
+        const dist = currentPoint.distance.toFixed(2);
+        info.innerHTML = `<strong>目前點位資訊</strong><hr>
+                          ${colorSwatch} 座標: (${x}, ${y})<br>
+                          &nbsp;&nbsp;└ 距離: ${dist} px`;
+    } else {
+        info.innerHTML = '請在螢幕上點擊或拖曳';
+    }
   }
 
   // --- 事件處理 ---
-
-  // 觸控事件
-  function handleTouchStart(event) {
-    event.preventDefault();
-    const touches = event.changedTouches;
-    const rect = canvas.getBoundingClientRect();
-
-    for (const touch of touches) {
-      const id = touch.identifier;
-      const color = getTouchColor(id);
-      const x = touch.clientX - rect.left;
-      const y = touch.clientY - rect.top;
-      const distance = calculateDistanceToDiagonal(x, y);
-      activePoints.set(id, { x, y, color, distance, lastX: x, lastY: y });
-      drawPoint(x, y, color, id);
-    }
-    updateInfo();
-  }
-
-  function handleTouchMove(event) {
-    event.preventDefault();
-    const touches = event.changedTouches;
-    const rect = canvas.getBoundingClientRect();
-
-    for (const touch of touches) {
-      const id = touch.identifier;
-      if (activePoints.has(id)) {
-        const currentPoint = activePoints.get(id);
-        const newX = touch.clientX - rect.left;
-        const newY = touch.clientY - rect.top;
-        const distance = calculateDistanceToDiagonal(newX, newY);
-        
-        // 畫移動軌跡
-        ctx.beginPath();
-        ctx.strokeStyle = currentPoint.color;
-        ctx.lineWidth = 2;
-        ctx.moveTo(currentPoint.lastX, currentPoint.lastY);
-        ctx.lineTo(newX, newY);
-        ctx.stroke();
-
-        // 更新點的資訊並重繪點本身，確保在軌跡之上
-        activePoints.set(id, { ...currentPoint, x: newX, y: newY, distance: distance, lastX: newX, lastY: newY });
-        drawPoint(newX, newY, currentPoint.color, id);
-      }
-    }
-    updateInfo();
-  }
-
-  function handleTouchEnd(event) {
-    event.preventDefault();
-    for (const touch of event.changedTouches) {
-      activePoints.delete(touch.identifier);
+  
+  // 統一處理點的更新或建立
+  function createOrUpdatePoint(x, y, color) {
+    const distance = calculateDistanceToDiagonal(x, y);
+    if (!currentPoint) {
+      currentPoint = { x, y, color, distance };
+    } else {
+      currentPoint.x = x;
+      currentPoint.y = y;
+      currentPoint.distance = distance;
+      currentPoint.color = color; // 更新顏色以區分觸控或滑鼠
     }
     redrawAll();
     updateInfo();
   }
   
+  // 觸控事件
+  function handleTouchStart(event) {
+    event.preventDefault();
+    const touch = event.changedTouches[0]; // 只處理第一個觸控點
+    const rect = canvas.getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    const y = touch.clientY - rect.top;
+    createOrUpdatePoint(x, y, '#e6194B'); // 觸控使用紅色
+  }
+
+  function handleTouchMove(event) {
+    event.preventDefault();
+    if (!currentPoint) return; // 如果沒有起始點，則不處理移動
+    const touch = event.changedTouches[0];
+    const rect = canvas.getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    const y = touch.clientY - rect.top;
+    createOrUpdatePoint(x, y, '#e6194B');
+  }
+
   // 滑鼠事件
   function handleMouseDown(event) {
     event.preventDefault();
     if (event.button !== 0) return;
-
     isMouseDown = true;
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
-
-    const id = 'M' + mousePointCounter;
-    currentMouseId = id; // 記錄當前拖曳的點ID
-    const color = '#000000';
-    const distance = calculateDistanceToDiagonal(x, y);
-
-    activePoints.set(id, { x, y, color, distance });
-    redrawAll(); // 重繪以顯示新點
-    updateInfo();
-
-    mousePointCounter++;
+    createOrUpdatePoint(x, y, '#000000'); // 滑鼠使用黑色
   }
 
   function handleMouseMove(event) {
-    if (!isMouseDown || !currentMouseId) return;
+    if (!isMouseDown) return;
     event.preventDefault();
-    
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
-
-    if (activePoints.has(currentMouseId)) {
-        const currentPoint = activePoints.get(currentMouseId);
-        const distance = calculateDistanceToDiagonal(x, y);
-        
-        // 更新點的資訊
-        activePoints.set(currentMouseId, { ...currentPoint, x: x, y: y, distance: distance });
-
-        // 重繪所有物件，產生點移動的效果
-        redrawAll();
-        updateInfo();
-    }
+    createOrUpdatePoint(x, y, '#000000');
   }
 
   function handleMouseUp(event) {
     event.preventDefault();
     isMouseDown = false;
-    currentMouseId = null; // 放開滑鼠後，不再追蹤這個點
   }
 
   // --- 事件綁定 ---
   canvas.addEventListener('touchstart', handleTouchStart);
   canvas.addEventListener('touchmove', handleTouchMove);
-  canvas.addEventListener('touchend', handleTouchEnd);
-  canvas.addEventListener('touchcancel', handleTouchEnd);
   
   canvas.addEventListener('mousedown', handleMouseDown);
   canvas.addEventListener('mousemove', handleMouseMove);
-  // 在整個視窗上監聽 mouseup，防止滑鼠拖曳到畫布外放開而出錯
-  window.addEventListener('mouseup', handleMouseUp);
+  window.addEventListener('mouseup', handleMouseUp); // 全域監聽，防止滑鼠移出畫布
 
-  clearButton.addEventListener('click', clearPoints);
+  clearButton.addEventListener('click', clearPoint);
   window.addEventListener('resize', resizeCanvas);
 
   // --- 初始化 ---
